@@ -914,8 +914,12 @@ const filterData = (data) => {
         <button onClick={exportToPDF} className="btn-export">Export to PDF</button>
       </div>
 
-      {/* Main Table */}
-     <div className="table-container">
+
+
+
+
+     {/* Main Table */}
+<div className="table-container">
   <table className="frozen-table">
     {/* Column Headers */}
     <thead>
@@ -964,27 +968,39 @@ const filterData = (data) => {
           </th>
         ))}
         {/* Additional columns (10+) */}
-        {colLabels.length > 9 && colLabels.slice(9).map((label, colIdx) => (
-          <th key={colIdx + 9} className="col-header">
-            <div className="header-content">
-              <input
-                className={`header-input ${!isAdmin() ? 'read-only' : ''}`}
-                value={label}
-                onChange={(e) => updateColLabel(colIdx + 9, e.target.value)}
-                readOnly={!isAdmin()}
-              />
+        {colLabels.length > 9 && colLabels.slice(9).map((label, colIdx) => {
+          const actualIndex = colIdx + 9;
+          return (
+            <th key={actualIndex} className="col-header">
+              <div className="header-content">
+                <input
+                  className={`header-input ${!isAdmin() ? 'read-only' : ''}`}
+                  value={label}
+                  onChange={(e) => updateColLabel(actualIndex, e.target.value)}
+                  readOnly={!isAdmin()}
+                />
+                {isAdmin() && showAdvancedTools && (
+                  <div className="col-header-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={selectedCols.includes(actualIndex)}
+                      onChange={() => toggleColSelection(actualIndex)}
+                    />
+                  </div>
+                )}
+              </div>
               {isAdmin() && showAdvancedTools && (
-                <div className="col-header-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={selectedCols.includes(colIdx + 9)}
-                    onChange={() => toggleColSelection(colIdx + 9)}
-                  />
-                </div>
+                <ColumnFilter
+                  columnIndex={actualIndex}
+                  columnLabel={label}
+                  data={data}
+                  filterValue={columnFilters[actualIndex] || ''}
+                  onFilterChange={handleFilterChange}
+                />
               )}
-            </div>
-          </th>
-        ))}
+            </th>
+          );
+        })}
       </tr>
     </thead>
 
@@ -1151,7 +1167,6 @@ const filterData = (data) => {
     </tbody>
   </table>
 </div>
-
       {/* Charts Section with Toggle Controls */}
       <div className="charts-section">
         <div className="chart-controls">
