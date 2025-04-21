@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { saveAs } from "file-saver";
+import { FiBarChart2, FiUsers, FiX, FiInfo, FiEdit2, FiTrash2, FiUserCheck } from 'react-icons/fi';
 import { saveToDB, loadFromDB } from './db';
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend
+  PieChart, Pie, CartesianGrid, Cell, Legend
 } from "recharts";
 import "./custom.css";
 
@@ -27,6 +28,12 @@ function App() {
   const [loginError, setLoginError] = useState("");
   
 // Dashboard state
+
+
+
+
+const [showCityStatsPopup, setShowCityStatsPopup] = useState(false);
+const [cityStats, setCityStats] = useState([]);
   const [showTourConsole, setShowTourConsole] = useState(false);
   const [showEmployeeModal, setShowEmployeeModal] = useState(false);
   
@@ -39,6 +46,17 @@ function App() {
     contactNumber: '',
     basicPay: ''
   });
+
+
+// Add these state variables near your other state declarations
+const [editingTour, setEditingTour] = useState(null);
+const [showEmployeeStats, setShowEmployeeStats] = useState(false);
+const [statsFilter, setStatsFilter] = useState({
+  employeeId: '',
+  startDate: '',
+  endDate: ''
+});
+
   
   // Tour management state
   const [tourRecords, setTourRecords] = useState([]);
@@ -57,6 +75,7 @@ function App() {
     equipment: '',
     status: ''
   });
+
 
   const [showPieChartModal, setShowPieChartModal] = useState(false);
   const [activeTab, setActiveTab] = useState(EQUIPMENT_TABS[0]);
@@ -190,12 +209,33 @@ const filterData = (data) => {
   // Get current tab data
  {/* const { rowLabels = [], colLabels = [], data = [] } = dashboardData[activeTab] || {};*/}
 
+
+useEffect(() => {
+  // This would typically come from your API
+  const fetchCityStats = async () => {
+    const stats = [
+      { city: 'New York', activeTours: 5, employeesDeployed: 12 },
+      { city: 'Los Angeles', activeTours: 3, employeesDeployed: 8 },
+      { city: 'Chicago', activeTours: 2, employeesDeployed: 5 }
+    ];
+    setCityStats(stats);
+  };
+
+  fetchCityStats();
+}, []);
+
+
+
+
   // Save data changes
   useEffect(() => {
     if (isAuthenticated && Object.keys(dashboardData).length > 0) {
       saveToDB("dashboardData", dashboardData);
     }
   }, [dashboardData, isAuthenticated]);
+
+
+
 
   // Update current tab's data
   const updateCurrentTabData = (newData) => {
@@ -376,6 +416,151 @@ const filterData = (data) => {
   };
 
   // ... (keep all your existing functions like handleLogin, handleLogout, etc.)
+
+
+
+
+// Add these functions to your component
+const deleteTourRecord = (tourId) => {
+  if (!isAdmin()) return;
+  setTourRecords(tourRecords.filter(tour => tour.id !== tourId));
+};
+
+const startEditTour = (tour) => {
+  if (!isAdmin()) return;
+  setEditingTour(tour);
+  setCurrentTour({
+    city: tour.city,
+    equipment: tour.equipment,
+    selectedEmployees: [...tour.employeeIds],
+    startDate: tour.startDate,
+    endDate: tour.endDate,
+    status: tour.status
+  });
+};
+
+const updateTourRecord = () => {
+  if (!isAdmin()) return;
+  
+  const updatedTour = {
+    ...editingTour,
+    city: currentTour.city,
+    equipment: currentTour.equipment,
+    employeeIds: currentTour.selectedEmployees,
+    startDate: currentTour.startDate,
+    endDate: currentTour.endDate,
+    status: currentTour.status
+  };
+
+  setTourRecords(tourRecords.map(tour => 
+    tour.id === updatedTour.id ? updatedTour : tour
+  ));
+  setEditingTour(null);
+  setCurrentTour({
+    city: '',
+    equipment: '',
+    selectedEmployees: [],
+    startDate: '',
+    endDate: '',
+    status: 'Upcoming'
+  });
+};
+
+const getEmployeeTourStats = () => {
+  const { employeeId, startDate, endDate } = statsFilter;
+  let filtered = tourRecords;
+
+  if (employeeId) {
+    filtered = filtered.filter(tour => 
+      tour.employeeIds.includes(employeeId)
+    );
+  }
+  if (startDate) {
+    filtered = filtered.filter(tour => 
+      new Date(tour.startDate) >= new Date(startDate)
+    );
+  }
+  if (endDate) {
+    filtered = filtered.filter(tour => 
+      new Date(tour.endDate) <= new Date(endDate)
+    );
+  }
+
+  return filtered.map(tour => {
+    const start = new Date(tour.startDate);
+    const end = new Date(tour.endDate);
+    const diffTime = Math.abs(end - start);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+      return {
+          ...tour,
+          duration: diffDays,
+          employeeNames: tour.employeeIds.map(id =>
+              employees.find(e => e.employeeId === id)?.name || 'Unknown'
+          )
+      };
+  });
+};
+
+
+// Update your tour records table to include actions column
+const renderTourRecordsTable = () => (
+  <div className="tour-table-container">
+    <table className="tour-records-table">
+      <thead>
+        <tr>
+          <th onClick={() => requestSort('city')}>City</th>
+          <th onClick={() => requestSort('equipment')}>Equipment</th>
+          <th>Team Members</th>
+          <th onClick={() => requestSort('startDate')}>Start Date</th>
+          <th onClick={() => requestSort('endDate')}>End Date</th>
+          <th onClick={() => requestSort('status')}>Status</th>
+          {isAdmin() && <th>Actions</th>}
+        </tr>
+      </thead>
+      <tbody>
+        {getFilteredRecords().map(record => (
+          <tr key={record.id}>
+            <td>{record.city}</td>
+            <td>{record.equipment}</td>
+            <td>
+              <ul className="team-members-list">
+                {record.employeeIds.map(empId => {
+                  const employee = employees.find(e => e.employeeId === empId);
+                  return employee ? (
+                    <li key={empId}>
+                      {employee.name} ({employee.designation})
+                    </li>
+                  ) : null;
+                })}
+              </ul>
+            </td>
+            <td>{new Date(record.startDate).toLocaleDateString()}</td>
+            <td>{record.endDate ? new Date(record.endDate).toLocaleDateString() : 'N/A'}</td>
+            <td className={`status-${record.status.replace(' ', '').toLowerCase()}`}>
+              {record.status}
+            </td>
+            {isAdmin() && (
+              <td className="tour-actions">
+                <button 
+                  className="edit-btn"
+                  onClick={() => startEditTour(record)}
+                >
+                  Edit
+                </button>
+                <button 
+                  className="delete-btn"
+                  onClick={() => deleteTourRecord(record.id)}
+                >
+                  Delete
+                </button>
+              </td>
+            )}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+);
 
 
 
@@ -1166,7 +1351,9 @@ const filterData = (data) => {
       ))}
     </tbody>
   </table>
-</div>
+          </div>
+
+
       {/* Charts Section with Toggle Controls */}
       <div className="charts-section">
         <div className="chart-controls">
@@ -1292,329 +1479,501 @@ const filterData = (data) => {
 
 
 
-  {/* Enhanced Tour Management Console Modal */}
-      {showTourConsole && (
-        <div className="modal-overlay" onClick={() => setShowTourConsole(false)}>
-          <div className="tour-console-modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Tour Management Console</h2>
-              <div className="header-actions">
-                <button 
-                  className="manage-employees-button"
-                  onClick={() => setShowEmployeeModal(true)}
-                >
-                  Manage Employees
-                </button>
-                <button 
-                  className="close-modal"
-                  onClick={() => setShowTourConsole(false)}
-                >
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                    <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                  </svg>
-                </button>
-              </div>
-            </div>
+{/* Enhanced Tour Management Console Modal */}
+{showTourConsole && (
+  <div className="modal-overlay" onClick={() => {
+    setShowTourConsole(false);
+    setEditingTour(null);
+  }}>
+    <div className="tour-console-modal" onClick={e => e.stopPropagation()}>
+      <div className="modal-header">
+        <h2>Tour Management Console</h2>
+        <div className="header-actions">
+          <button 
+            className="stats-button"
+            onClick={() => setShowEmployeeStats(true)}
+          >
+            <FiBarChart2 /> Employee Stats
+          </button>
+          <button 
+            className="manage-employees-button"
+            onClick={() => setShowEmployeeModal(true)}
+          >
+            <FiUsers /> Manage Employees
+          </button>
+          <button 
+            className="close-modal"
+            onClick={() => {
+              setShowTourConsole(false);
+              setEditingTour(null);
+            }}
+          >
+            <FiX />
+          </button>
+        </div>
+      </div>
 
-            <div className="tour-console-content">
-              {/* City Statistics */}
-              <div className="city-stats-section">
-                <h3>Current Deployment Status by City</h3>
-                <div className="stats-grid">
-                  {Object.entries(getCityStats()).map(([city, stats]) => (
-                    <div key={city} className="city-stat-card">
-                      <h4>{city}</h4>
-                      <div>Total: {stats.total}</div>
-                      <div>Upcoming: {stats.upcoming}</div>
-                      <div>On Tour: {stats.onTour}</div>
-                      <div>Completed: {stats.completed}</div>
+      <div className="tour-console-layout">
+        {/* Left Panel - Create/Edit Tour */}
+        <div className="tour-form-panel">
+          <div className="city-stats-header">
+            <h3>Current Deployment Status by City</h3>
+            <button 
+              className="info-button"
+              onClick={() => setShowCityStatsPopup(true)}
+              title="View detailed city stats"
+            >
+              <FiInfo />
+            </button>
+          </div>
+          
+
+
+{/* City Stats Popup Modal */}
+{showCityStatsPopup && (
+  <div className="modal-overlay" onClick={() => setShowCityStatsPopup(false)}>
+    <div className="stats-popup" onClick={e => e.stopPropagation()}>
+      <div className="popup-header">
+        <h3>City Deployment Statistics</h3>
+        <button onClick={() => setShowCityStatsPopup(false)}>
+          <FiX />
+        </button>
+      </div>
+      
+      <div className="stats-table">
+        <table>
+          <thead>
+            <tr>
+              <th>City</th>
+              <th>Active Tours</th>
+              <th>Employees Deployed</th>
+            </tr>
+          </thead>
+          <tbody>
+            {cityStats.map((stat, index) => (
+              <tr key={index}>
+                <td>{stat.city}</td>
+                <td>{stat.activeTours}</td>
+                <td>{stat.employeesDeployed}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+)}
+
+                  <div className="add-tour-section">
+            <h3>{editingTour ? 'Edit Tour' : 'Create New Tour'}</h3>
+            <div className="tour-form">
+              <div className="form-row">
+                <label>City:</label>
+                <input
+                  type="text"
+                  name="city"
+                  value={currentTour.city}
+                  onChange={handleTourInputChange}
+                  placeholder="Enter city name"
+                />
+              </div>
+              
+              <div className="form-row">
+                <label>Equipment:</label>
+                <input
+                  type="text"
+                  name="equipment"
+                  value={currentTour.equipment}
+                  onChange={handleTourInputChange}
+                  placeholder="Enter equipment name"
+                />
+              </div>
+              
+              <div className="form-row">
+                <label>Select Team Members:</label>
+                <div className="employee-selection">
+                  {employees.map(employee => (
+                    <div key={employee.employeeId} className="employee-checkbox">
+                      <input
+                        type="checkbox"
+                        id={`emp-${employee.employeeId}`}
+                        checked={currentTour.selectedEmployees.includes(employee.employeeId)}
+                        onChange={() => toggleEmployeeSelection(employee.employeeId)}
+                      />
+                      <label htmlFor={`emp-${employee.employeeId}`}>
+                        {employee.name} ({employee.designation})
+                      </label>
                     </div>
                   ))}
                 </div>
               </div>
+              
+              <div className="form-row">
+                <label>Start Date:</label>
+                <input
+                  type="date"
+                  name="startDate"
+                  value={currentTour.startDate}
+                  onChange={handleTourInputChange}
+                />
+              </div>
+              
+              <div className="form-row">
+                <label>End Date:</label>
+                <input
+                  type="date"
+                  name="endDate"
+                  value={currentTour.endDate}
+                  onChange={handleTourInputChange}
+                />
+              </div>
+              
+              <div className="form-row">
+                <label>Status:</label>
+                <select
+                  name="status"
+                  value={currentTour.status}
+                  onChange={handleTourInputChange}
+                >
+                  <option value="Upcoming">Upcoming</option>
+                  <option value="On Tour">On Tour</option>
+                  <option value="Completed">Completed</option>
+                </select>
+              </div>
 
-              {/* Add New Tour Section */}
-              <div className="add-tour-section">
-                <h3>Create New Tour</h3>
-                <div className="tour-form">
-                  <div className="form-row">
-                    <label>City:</label>
-                    <input
-                      type="text"
-                      name="city"
-                      value={currentTour.city}
-                      onChange={handleTourInputChange}
-                      placeholder="Enter city name"
-                    />
-                  </div>
-                  
-                  <div className="form-row">
-                    <label>Equipment:</label>
-                    <input
-                      type="text"
-                      name="equipment"
-                      value={currentTour.equipment}
-                      onChange={handleTourInputChange}
-                      placeholder="Enter equipment name"
-                    />
-                  </div>
-                  
-                  <div className="form-row">
-                    <label>Select Team Members:</label>
-                    <div className="employee-selection">
-                      {employees.map(employee => (
-                        <div key={employee.employeeId} className="employee-checkbox">
-                          <input
-                            type="checkbox"
-                            id={`emp-${employee.employeeId}`}
-                            checked={currentTour.selectedEmployees.includes(employee.employeeId)}
-                            onChange={() => toggleEmployeeSelection(employee.employeeId)}
-                          />
-                          <label htmlFor={`emp-${employee.employeeId}`}>
-                            {employee.name} ({employee.designation})
-                          </label>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  
-                  <div className="form-row">
-                    <label>Start Date:</label>
-                    <input
-                      type="date"
-                      name="startDate"
-                      value={currentTour.startDate}
-                      onChange={handleTourInputChange}
-                    />
-                  </div>
-                  
-                  <div className="form-row">
-                    <label>End Date:</label>
-                    <input
-                      type="date"
-                      name="endDate"
-                      value={currentTour.endDate}
-                      onChange={handleTourInputChange}
-                    />
-                  </div>
-                  
-                  <div className="form-row">
-                    <label>Status:</label>
-                    <select
-                      name="status"
-                      value={currentTour.status}
-                      onChange={handleTourInputChange}
-                    >
-                      <option value="Upcoming">Upcoming</option>
-                      <option value="On Tour">On Tour</option>
-                      <option value="Completed">Completed</option>
-                    </select>
-                  </div>
-                  
+
+
+
+
+
+
+
+
+
+
+
+
+              <div className="form-actions">
+                {editingTour && (
                   <button 
-                    onClick={submitTourRecord}
-                    className="submit-tour-button"
+                    className="cancel-btn"
+                    onClick={() => {
+                      setEditingTour(null);
+                      setCurrentTour({
+                        city: '',
+                        equipment: '',
+                        selectedEmployees: [],
+                        startDate: '',
+                        endDate: '',
+                        status: 'Upcoming'
+                      });
+                    }}
                   >
-                    Create Tour
+                    Cancel
                   </button>
-                </div>
-              </div>
-
-              {/* Tour Records Table */}
-              <div className="tour-records-section">
-                <h3>Tour Records</h3>
-                
-                {/* Filters */}
-                <div className="tour-filters">
-                  <input
-                    type="text"
-                    placeholder="Filter by city"
-                    value={filterValues.city}
-                    onChange={(e) => setFilterValues({...filterValues, city: e.target.value})}
-                  />
-                  
-                  <input
-                    type="text"
-                    placeholder="Filter by equipment"
-                    value={filterValues.equipment}
-                    onChange={(e) => setFilterValues({...filterValues, equipment: e.target.value})}
-                  />
-                  
-                  <select
-                    value={filterValues.status}
-                    onChange={(e) => setFilterValues({...filterValues, status: e.target.value})}
-                  >
-                    <option value="">All Statuses</option>
-                    <option value="Upcoming">Upcoming</option>
-                    <option value="On Tour">On Tour</option>
-                    <option value="Completed">Completed</option>
-                  </select>
-                </div>
-                
-                <div className="tour-table-container">
-                  <table className="tour-records-table">
-                    <thead>
-                      <tr>
-                        <th onClick={() => requestSort('city')}>City</th>
-                        <th onClick={() => requestSort('equipment')}>Equipment</th>
-                        <th>Team Members</th>
-                        <th onClick={() => requestSort('startDate')}>Start Date</th>
-                        <th onClick={() => requestSort('endDate')}>End Date</th>
-                        <th onClick={() => requestSort('status')}>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {getFilteredRecords().map(record => (
-                        <tr key={record.id}>
-                          <td>{record.city}</td>
-                          <td>{record.equipment}</td>
-                          <td>
-                            <ul className="team-members-list">
-                              {record.employeeIds.map(empId => {
-                                const employee = employees.find(e => e.employeeId === empId);
-                                return employee ? (
-                                  <li key={empId}>
-                                    {employee.name} ({employee.designation})
-                                  </li>
-                                ) : null;
-                              })}
-                            </ul>
-                          </td>
-                          <td>{new Date(record.startDate).toLocaleDateString()}</td>
-                          <td>{record.endDate ? new Date(record.endDate).toLocaleDateString() : 'N/A'}</td>
-                          <td className={`status-${record.status.replace(' ', '').toLowerCase()}`}>
-                            {record.status}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                )}
+                <button 
+                  className="submit-tour-button"
+                  onClick={editingTour ? updateTourRecord : submitTourRecord}
+                >
+                  {editingTour ? 'Update Tour' : 'Create Tour'}
+                </button>
               </div>
             </div>
           </div>
         </div>
-      )}
 
-      {/* Employee Management Modal */}
-      {showEmployeeModal && (
-        <div className="modal-overlay" onClick={() => setShowEmployeeModal(false)}>
-          <div className="employee-modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Employee Database</h2>
-              <button 
-                className="close-modal"
-                onClick={() => setShowEmployeeModal(false)}
-              >
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                </svg>
-              </button>
-            </div>
-
-            <div className="employee-modal-content">
-              {/* Add New Employee */}
-              <div className="add-employee-section">
-                <h3>Add New Employee</h3>
-                <div className="employee-form">
-                  <div className="form-row">
-                    <label>Employee ID:</label>
-                    <input
-                      type="text"
-                      name="employeeId"
-                      value={newEmployee.employeeId}
-                      onChange={handleEmployeeInputChange}
-                    />
-                  </div>
-                  
-                  <div className="form-row">
-                    <label>Name:</label>
-                    <input
-                      type="text"
-                      name="name"
-                      value={newEmployee.name}
-                      onChange={handleEmployeeInputChange}
-                    />
-                  </div>
-                  
-                  <div className="form-row">
-                    <label>Designation:</label>
-                    <input
-                      type="text"
-                      name="designation"
-                      value={newEmployee.designation}
-                      onChange={handleEmployeeInputChange}
-                    />
-                  </div>
-                  
-                  <div className="form-row">
-                    <label>Contact Number:</label>
-                    <input
-                      type="text"
-                      name="contactNumber"
-                      value={newEmployee.contactNumber}
-                      onChange={handleEmployeeInputChange}
-                    />
-                  </div>
-                  
-                  <div className="form-row">
-                    <label>Basic Pay:</label>
-                    <input
-                      type="text"
-                      name="basicPay"
-                      value={newEmployee.basicPay}
-                      onChange={handleEmployeeInputChange}
-                    />
-                  </div>
-                  
-                  <button onClick={addEmployee} className="add-employee-button">
-                    Add Employee
-                  </button>
-                </div>
-              </div>
-
-              {/* Employee List */}
-              <div className="employee-list-section">
-                <h3>Employee Records</h3>
-                <table className="employee-table">
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>Name</th>
-                      <th>Designation</th>
-                      <th>Contact</th>
-                      <th>Basic Pay</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {employees.map(employee => (
-                      <tr key={employee.employeeId}>
-                        <td>{employee.employeeId}</td>
-                        <td>{employee.name}</td>
-                        <td>{employee.designation}</td>
-                        <td>{employee.contactNumber}</td>
-                        <td>{employee.basicPay}</td>
-                        <td>
-                          <button 
-                            onClick={() => deleteEmployee(employee.employeeId)}
-                            className="delete-button"
-                          >
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+        {/* Right Panel - Tour Records */}
+        <div className="tour-records-panel">
+          <h3>Tour Records</h3>
+          <div className="tour-filters">
+            <input
+              type="text"
+              placeholder="Filter by city"
+              value={filterValues.city}
+              onChange={(e) => setFilterValues({...filterValues, city: e.target.value})}
+            />
+            <input
+              type="text"
+              placeholder="Filter by equipment"
+              value={filterValues.equipment}
+              onChange={(e) => setFilterValues({...filterValues, equipment: e.target.value})}
+            />
+            <select
+              value={filterValues.status}
+              onChange={(e) => setFilterValues({...filterValues, status: e.target.value})}
+            >
+              <option value="">All Statuses</option>
+              <option value="Upcoming">Upcoming</option>
+              <option value="On Tour">On Tour</option>
+              <option value="Completed">Completed</option>
+            </select>
+          </div>
+          
+          <div className="tour-table-container">
+            <table className="tour-records-table">
+              <thead>
+                <tr>
+                  <th onClick={() => requestSort('city')}>City</th>
+                  <th onClick={() => requestSort('equipment')}>Equipment</th>
+                  <th>Team Members</th>
+                  <th onClick={() => requestSort('startDate')}>Start Date</th>
+                  <th onClick={() => requestSort('endDate')}>End Date</th>
+                  <th onClick={() => requestSort('status')}>Status</th>
+                  {isAdmin() && <th>Actions</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {getFilteredRecords().map(record => (
+                  <tr key={record.id}>
+                    <td>{record.city}</td>
+                    <td>{record.equipment}</td>
+                    <td>
+                      <ul className="team-members-list">
+                        {record.employeeIds.map(empId => {
+                          const employee = employees.find(e => e.employeeId === empId);
+                          return employee ? (
+                            <li key={empId}>
+                              {employee.name} ({employee.designation})
+                            </li>
+                          ) : null;
+                        })}
+                      </ul>
+                    </td>
+                    <td>{new Date(record.startDate).toLocaleDateString()}</td>
+                    <td>{record.endDate ? new Date(record.endDate).toLocaleDateString() : 'N/A'}</td>
+                    <td className={`status-${record.status.replace(' ', '').toLowerCase()}`}>
+                      {record.status}
+                    </td>
+                    {isAdmin() && (
+                      <td className="tour-actions">
+                        <button 
+                          className="edit-btn"
+                          onClick={() => startEditTour(record)}
+                        >
+                          <FiEdit2 />
+                        </button>
+                        <button 
+                          className="delete-btn"
+                          onClick={() => {
+                            if (window.confirm('Are you sure you want to delete this tour?')) {
+                              deleteTourRecord(record.id);
+                            }
+                          }}
+                        >
+                          <FiTrash2 />
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
-      )}
+      </div>
+    </div>
+  </div>
+)}
+
+
+
+
+
+{/* Employee Stats Modal */}
+{showEmployeeStats && (
+  <div className="modal-overlay" onClick={() => setShowEmployeeStats(false)}>
+    <div className="employee-stats-modal" onClick={e => e.stopPropagation()}>
+      <div className="stats-header">
+        <h3>Employee Tour Statistics</h3>
+        <button 
+          className="close-modal"
+          onClick={() => setShowEmployeeStats(false)}
+        >
+          <FiX />
+        </button>
+      </div>
+      <div className="stats-filters">
+        <select
+          value={statsFilter.employeeId}
+          onChange={(e) => setStatsFilter({...statsFilter, employeeId: e.target.value})}
+        >
+          <option value="">Select Employee</option>
+          {employees.map(emp => (
+            <option key={emp.employeeId} value={emp.employeeId}>
+              {emp.name} ({emp.employeeId})
+            </option>
+          ))}
+        </select>
+        <input
+          type="date"
+          value={statsFilter.startDate}
+          onChange={(e) => setStatsFilter({...statsFilter, startDate: e.target.value})}
+          placeholder="Start Date"
+        />
+        <input
+          type="date"
+          value={statsFilter.endDate}
+          onChange={(e) => setStatsFilter({...statsFilter, endDate: e.target.value})}
+          placeholder="End Date"
+        />
+      </div>
+      <div className="stats-results">
+        {statsFilter.employeeId ? (
+          <ResponsiveContainer width="100%" height={400}>
+            <BarChart
+              data={getEmployeeTourStats()}
+              margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis 
+                dataKey="city"
+                angle={-45} 
+                textAnchor="end" 
+                height={60}
+              />
+              <YAxis />
+              <Tooltip />
+              <Legend />
+              <Bar 
+                dataKey="duration" 
+                name="Tour Days" 
+                fill="#8884d8" 
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="select-employee-prompt">
+            <FiUserCheck size={48} />
+            <p>Please select an employee to view their tour statistics</p>
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+)}
+
+
+
+
+{/* Employee Management Modal */}
+{showEmployeeModal && (
+  <div className="modal-overlay" onClick={() => setShowEmployeeModal(false)}>
+    <div className="employee-modal" onClick={e => e.stopPropagation()}>
+      <div className="modal-header">
+        <h2>Employee Database</h2>
+        <button 
+          className="close-modal"
+          onClick={() => setShowEmployeeModal(false)}
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+          </svg>
+        </button>
+      </div>
+
+      <div className="employee-modal-content">
+        {/* Add New Employee */}
+        <div className="add-employee-section">
+          <h3>Add New Employee</h3>
+          <div className="employee-form">
+            <div className="form-row">
+              <label>Employee ID:</label>
+              <input
+                type="text"
+                name="employeeId"
+                value={newEmployee.employeeId}
+                onChange={handleEmployeeInputChange}
+              />
+            </div>
+            
+            <div className="form-row">
+              <label>Name:</label>
+              <input
+                type="text"
+                name="name"
+                value={newEmployee.name}
+                onChange={handleEmployeeInputChange}
+              />
+            </div>
+            
+            <div className="form-row">
+              <label>Designation:</label>
+              <input
+                type="text"
+                name="designation"
+                value={newEmployee.designation}
+                onChange={handleEmployeeInputChange}
+              />
+            </div>
+            
+            <div className="form-row">
+              <label>Contact Number:</label>
+              <input
+                type="text"
+                name="contactNumber"
+                value={newEmployee.contactNumber}
+                onChange={handleEmployeeInputChange}
+              />
+            </div>
+            
+            <div className="form-row">
+              <label>Basic Pay:</label>
+              <input
+                type="text"
+                name="basicPay"
+                value={newEmployee.basicPay}
+                onChange={handleEmployeeInputChange}
+              />
+            </div>
+            
+            <button onClick={addEmployee} className="add-employee-button">
+              Add Employee
+            </button>
+          </div>
+        </div>
+
+        {/* Employee List */}
+        <div className="employee-list-section">
+          <h3>Employee Records</h3>
+          <table className="employee-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Designation</th>
+                <th>Contact</th>
+                <th>Basic Pay</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {employees.map(employee => (
+                <tr key={employee.employeeId}>
+                  <td>{employee.employeeId}</td>
+                  <td>{employee.name}</td>
+                  <td>{employee.designation}</td>
+                  <td>{employee.contactNumber}</td>
+                  <td>{employee.basicPay}</td>
+                  <td>
+                    <button 
+                      onClick={() => deleteEmployee(employee.employeeId)}
+                      className="delete-button"
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
     </div>
   );
-}
-
+ }
 
 export default App;
